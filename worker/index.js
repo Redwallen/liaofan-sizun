@@ -159,6 +159,14 @@ function sessionCookie(request, token, maxAge) {
   return COOKIE + '=' + token + '; HttpOnly; SameSite=Lax; Path=/; Max-Age=' + maxAge + sharedDomainSuffix(request) + secure;
 }
 
+// 与 ESAT 约定好的标记 Cookie，让两边都能一眼看出「共享域的会话已经下发过了」
+const SHARED_MARKER = 'esat_shared';
+
+function markerCookie(request, maxAge) {
+  const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
+  return SHARED_MARKER + '=1; HttpOnly; SameSite=Lax; Path=/; Max-Age=' + maxAge + sharedDomainSuffix(request) + secure;
+}
+
 function publicUser(row) {
   return { id: row.id, email: row.email, createdAt: row.created_at };
 }
@@ -176,7 +184,10 @@ async function createSession(env, request, user) {
       .bind(tokenHash, user.id, now, now + SESSION_TTL_MS),
   ]);
   const maxAge = Math.floor(SESSION_TTL_MS / 1000);
-  return json({ user: publicUser(user) }, 200, { 'Set-Cookie': sessionCookie(request, token, maxAge) });
+  const response = json({ user: publicUser(user) });
+  response.headers.append('Set-Cookie', sessionCookie(request, token, maxAge));
+  response.headers.append('Set-Cookie', markerCookie(request, maxAge));
+  return response;
 }
 
 async function authenticatedUser(env, request) {
@@ -239,7 +250,10 @@ async function logout(env, request) {
   if (token) {
     await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256(token)).run();
   }
-  return json({ ok: true }, 200, { 'Set-Cookie': sessionCookie(request, '', 0) });
+  const response = json({ ok: true });
+  response.headers.append('Set-Cookie', sessionCookie(request, '', 0));
+  response.headers.append('Set-Cookie', markerCookie(request, 0));
+  return response;
 }
 
 /* ------------------------------ 阅读进度同步 ------------------------------ */
