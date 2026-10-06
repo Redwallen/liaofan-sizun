@@ -95,6 +95,7 @@
 
   var sync = null;          // 由 boot() 创建
   var authUserKey = '';     // 用于判断账号状态是否变化
+  var authAvailKey = null;  // 后端可用性是否变化（首页卡片依赖它）
 
   var state = {
     mode: settings.defaultMode === 'flow' ? 'flow' : 'focus',
@@ -920,15 +921,25 @@
 
   function onSyncStatus() {
     updateAccountChrome();
-    var key = sync && sync.status.user ? sync.status.user.id : '';
-    if (key !== authUserKey) {
-      authUserKey = key;
-      // 退出登录后回到「登录」标签，否则再填一次会变成重复注册
-      if (!key) state.authTab = 'login';
-      if (!$('#authModal').hidden) renderAuthBody();
-    } else {
+    var userKey = sync && sync.status.user ? sync.status.user.id : '';
+    var availKey = sync ? String(sync.status.available) : 'null';
+
+    if (userKey === authUserKey && availKey === authAvailKey) {
       var el = $('#authState');
       if (el) el.textContent = syncStatusText();
+      return;
+    }
+
+    authUserKey = userKey;
+    authAvailKey = availKey;
+    // 退出登录后回到「登录」标签，否则再填一次会变成重复注册
+    if (!userKey) state.authTab = 'login';
+    if (!$('#authModal').hidden) renderAuthBody();
+
+    // 首页与章节页的账号信息依赖登录态，状态明确后重绘一次
+    var path = (location.hash || '#/').replace(/^#/, '');
+    if ((path === '' || path === '/' || /^\/ch\//.test(path)) && sync.status.available !== null) {
+      route();
     }
   }
 
