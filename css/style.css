@@ -560,6 +560,91 @@ h1, h2, h3, h4 { font-family: var(--kai); font-weight: 600; line-height: 1.35; }
 .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
 .empty h2 { font-size: 22px; margin-bottom: 8px; }
 
+/* ---------- 账号与同步 ---------- */
+.account-btn { position: relative; }
+.account-dot {
+  position: absolute; top: 4px; right: 4px;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--accent-2); border: 1.5px solid var(--surface);
+}
+.account-dot.busy { background: var(--gold); }
+.account-dot.bad { background: var(--accent); }
+
+.auth-modal {
+  position: fixed; z-index: 62;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(430px, 92vw); max-height: 86vh;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: 16px; box-shadow: 0 24px 70px -20px rgba(0, 0, 0, .5);
+  display: flex; flex-direction: column; overflow: hidden;
+  animation: authIn .2s ease;
+}
+@keyframes authIn {
+  from { opacity: 0; transform: translate(-50%, -48%) scale(.98); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+.auth-head {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 18px 18px 14px; border-bottom: 1px solid var(--border);
+}
+.auth-head h3 { margin: 0 0 4px; font-size: 19px; letter-spacing: .06em; }
+.auth-head .iconbtn { margin-left: auto; flex: none; }
+.auth-sub { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.65; }
+.auth-body { padding: 18px; overflow-y: auto; }
+
+.auth-tabs {
+  display: flex; gap: 4px; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 10px; padding: 3px; margin-bottom: 16px;
+}
+.auth-tabs button {
+  flex: 1; border: none; background: transparent; color: var(--muted);
+  padding: 9px 4px; border-radius: 7px; font-size: 13.5px; font-weight: 600;
+}
+.auth-tabs button.on { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px rgba(0, 0, 0, .08); }
+.auth-field { margin-bottom: 13px; }
+.auth-field label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+.auth-field input {
+  width: 100%; padding: 11px 13px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); color: var(--ink);
+  font-size: 15px; font-family: inherit;
+}
+.auth-field input:focus { outline: none; border-color: var(--accent-2); box-shadow: 0 0 0 3px var(--accent-2-soft); }
+.auth-error { font-size: 13px; color: var(--accent); min-height: 18px; margin: 2px 0 8px; }
+.auth-actions { display: flex; gap: 8px; }
+.auth-actions .btn { flex: 1; }
+.auth-hint { font-size: 12px; color: var(--faint); margin-top: 14px; line-height: 1.75; }
+
+.auth-user {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px; margin-bottom: 16px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px;
+}
+.auth-avatar {
+  width: 40px; height: 40px; flex: none; border-radius: 50%;
+  background: var(--accent); color: #fdf6ea;
+  display: grid; place-items: center;
+  font-family: var(--serif); font-size: 19px;
+}
+.auth-user .au-mail { font-size: 14px; word-break: break-all; }
+.auth-user .au-state { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.sync-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+.sync-row .spacer { flex: 1; }
+.sync-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 99px; font-size: 12px;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
+}
+.sync-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.sync-pill.ok .dot { background: var(--accent-2); }
+.sync-pill.busy .dot { background: var(--gold); }
+.sync-pill.bad .dot { background: var(--accent); }
+
+.account-card { display: flex; align-items: center; gap: 14px; }
+.account-card .ac-text { flex: 1; min-width: 0; }
+.account-card .ac-text strong { display: block; font-size: 15px; }
+.account-card .ac-text span { font-size: 13px; color: var(--muted); }
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 720px) {
   .view { padding: 20px 15px 96px; }

@@ -20,7 +20,7 @@
       { b: '点原文看白话', s: '每一句文言都可以点开，立刻看到现代汉语翻译，不必先啃完全篇。' },
       { b: '点红色词看注释', s: '人名、地名、官职、典故都做了注释，读到不懂的词点一下就有解释。' },
       { b: '两种读法', s: '「逐句精读」一次只面对一句；「通篇对照」则整节铺开，按需展开译文。' },
-      { b: '进度自动保存', s: '读到哪、哪些句子看过、写的笔记，都记在这台设备的浏览器里。' }
+      { b: '进度自动保存', s: '未登录时存在本机，登录后自动同步到账号，换设备也能接着读。' }
     ]
   };
 
@@ -55,15 +55,53 @@
     try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
   }
 
+  /* --------- 本地数据规范化 ---------
+     进度：{ [id]: { done, pos, revealed:{}, at } }
+     笔记：{ [id]: { text, at } }
+     旧版本的笔记是纯字符串、也没有 at，这里统一升级。
+     at = 0 表示「登录前就存在的旧数据」：同步时只会补上云端还没有的小节，
+     不会覆盖云端更新的记录。 */
+  function normalizeProgress(raw) {
+    var out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    Object.keys(raw).forEach(function (id) {
+      var e = raw[id];
+      if (!e || typeof e !== 'object') return;
+      out[id] = {
+        done: !!e.done,
+        pos: Number.isInteger(e.pos) && e.pos >= 0 ? e.pos : 0,
+        revealed: e.revealed && typeof e.revealed === 'object' ? e.revealed : {},
+        at: Number.isFinite(e.at) ? e.at : 0
+      };
+    });
+    return out;
+  }
+
+  function normalizeNotes(raw) {
+    var out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    Object.keys(raw).forEach(function (id) {
+      var e = raw[id];
+      if (typeof e === 'string') { out[id] = { text: e, at: 0 }; return; }
+      if (!e || typeof e !== 'object') return;
+      out[id] = { text: typeof e.text === 'string' ? e.text : '', at: Number.isFinite(e.at) ? e.at : 0 };
+    });
+    return out;
+  }
+
   var settings = Object.assign({}, DEFAULT_SETTINGS, load(LS.settings, {}));
-  var progress = load(LS.progress, {});
-  var mynotes = load(LS.notes, {});
+  var progress = normalizeProgress(load(LS.progress, {}));
+  var mynotes = normalizeNotes(load(LS.notes, {}));
+
+  var sync = null;          // 由 boot() 创建
+  var authUserKey = '';     // 用于判断账号状态是否变化
 
   var state = {
     mode: settings.defaultMode === 'flow' ? 'flow' : 'focus',
     reader: null,      // {ci, si, pos, revealed:{}}
     searchQuery: '',
-    glossaryCh: 'all'
+    glossaryCh: 'all',
+    authTab: 'login'
   };
 
   /* ----------------------------- 工具 ----------------------------- */
@@ -88,10 +126,18 @@
   }
 
   function secProgress(id) {
-    if (!progress[id]) progress[id] = { done: false, pos: 0, revealed: {} };
-    if (!progress[id].revealed) progress[id].revealed = {};
+    if (!progress[id]) progress[id] = { done: false, pos: 0, revealed: {}, at: 0 };
+    if (!progress[id].revealed || typeof progress[id].revealed !== 'object') progress[id].revealed = {};
+    if (!Number.isFinite(progress[id].at)) progress[id].at = 0;
     return progress[id];
   }
+
+  /* --------- 保存并通知云同步 --------- */
+  function syncSchedule() { if (sync) sync.schedule(); }
+  function persistProgress() { save(LS.progress, progress); syncSchedule(); }
+  function persistNotes() { save(LS.notes, mynotes); syncSchedule(); }
+  /** 打上修改时间，供多设备之间逐节比较新旧 */
+  function touch(entry) { entry.at = Date.now(); return entry; }
 
   /* --------- 逐句精读的推进逻辑（按钮、键盘、滑动共用） --------- */
   function focusState() {
@@ -104,17 +150,17 @@
   function focusReveal() {
     var f = focusState(); if (!f) return;
     f.pr.revealed[f.pos] = true;
-    save(LS.progress, progress); route();
+    touch(f.pr); persistProgress(); route();
   }
   function focusNext() {
     var f = focusState(); if (!f) return;
     f.pr.pos = Math.min(f.sec.pairs.length, f.pos + 1);
-    save(LS.progress, progress); route();
+    touch(f.pr); persistProgress(); route();
   }
   function focusPrev() {
     var f = focusState(); if (!f) return;
     f.pr.pos = Math.max(0, f.pos - 1);
-    save(LS.progress, progress); route();
+    touch(f.pr); persistProgress(); route();
   }
   /* 先展开白话，已展开则进下一句 */
   function focusAdvance() {
@@ -314,6 +360,18 @@
     html += '<a class="btn primary" href="' + resumeHref + '">' + escapeHtml(resumeText) + '</a>';
     html += '</div>';
 
+    if (sync && sync.status.available) {
+      var su = sync.status.user;
+      html += '<div class="overall account-card">' +
+        '<div class="ac-text"><strong>' +
+          (su ? '已登录：' + escapeHtml(su.email) : '登录后可在多设备同步') + '</strong>' +
+        '<span>' +
+          (su ? escapeHtml(syncStatusText()) : '未登录时进度与笔记只存在本机，登录后自动合并上传。') +
+        '</span></div>' +
+        '<button class="btn" id="homeAccountBtn">' + (su ? '账号与同步' : '登录 / 注册') + '</button>' +
+        '</div>';
+    }
+
     html += '<div class="chapter-grid">';
     BOOK.chapters.forEach(function (ch, ci) {
       var st = chapterStats(ch);
@@ -374,7 +432,7 @@
       html += '<a class="sec-item' + (p.done ? ' done' : '') + '" href="#/read/' + ci + '/' + si + '">';
       html += '<span class="sec-no">' + (si + 1) + '</span>';
       html += '<span class="sec-title">' + escapeHtml(sec.title) + '</span>';
-      if (mynotes[sec.id]) html += '<span class="sec-meta">有笔记</span>';
+      if (mynotes[sec.id] && mynotes[sec.id].text) html += '<span class="sec-meta">有笔记</span>';
       html += '<span class="sec-meta">' + sec.pairs.length + ' 句</span>';
       if (p.done) html += '<span class="sec-check">✓</span>';
       html += '</a>';
@@ -484,16 +542,19 @@
     // 恢复笔记
     var ta = $('#myNote');
     if (ta) {
-      ta.value = mynotes[sec.id] || '';
+      ta.value = (mynotes[sec.id] && mynotes[sec.id].text) || '';
       var stateEl = $('#noteState');
       if (ta.value) stateEl.textContent = '已保存';
       var timer = null;
       ta.addEventListener('input', function () {
         clearTimeout(timer);
         timer = setTimeout(function () {
-          if (ta.value.trim()) mynotes[sec.id] = ta.value; else delete mynotes[sec.id];
-          save(LS.notes, mynotes);
-          stateEl.textContent = '已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+          // 清空也要记录（空文本 = 已删除的墓碑），否则其它设备会把旧笔记传回来
+          mynotes[sec.id] = { text: ta.value, at: Date.now() };
+          persistNotes();
+          stateEl.textContent = ta.value
+            ? '已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+            : '已清空';
         }, 500);
       });
     }
@@ -609,7 +670,9 @@
     var entries = [];
     BOOK.chapters.forEach(function (ch, ci) {
       ch.sections.forEach(function (sec, si) {
-        if (mynotes[sec.id]) entries.push({ ci: ci, si: si, ch: ch, sec: sec, text: mynotes[sec.id] });
+        if (mynotes[sec.id] && mynotes[sec.id].text) {
+          entries.push({ ci: ci, si: si, ch: ch, sec: sec, text: mynotes[sec.id].text });
+        }
       });
     });
     var html = '';
@@ -714,6 +777,185 @@
     } catch (err) { return e; }
   }
 
+  /* ----------------------------- 账号与同步 ----------------------------- */
+  function timeAgo(ts) {
+    var d = Date.now() - ts;
+    if (d < 60000) return '刚刚';
+    if (d < 3600000) return Math.floor(d / 60000) + ' 分钟前';
+    if (d < 86400000) return Math.floor(d / 3600000) + ' 小时前';
+    return Math.floor(d / 86400000) + ' 天前';
+  }
+
+  function syncStatusText() {
+    if (!sync) return '';
+    var st = sync.status;
+    if (st.phase === 'checking') return '正在检查登录状态…';
+    if (st.phase === 'syncing') return '正在同步…';
+    if (st.phase === 'error') return '同步失败：' + (st.error || '未知错误');
+    if (st.pending) return '有改动待同步…';
+    if (st.lastSyncAt) return '已同步 · ' + timeAgo(st.lastSyncAt);
+    return '已登录';
+  }
+
+  /** 刷新顶栏圆点与页脚说明（不会动到正在输入的界面） */
+  function updateAccountChrome() {
+    var dot = $('#accountDot');
+    var btn = $('#accountBtn');
+    var footer = $('#footerSyncNote');
+    if (!dot || !btn) return;
+
+    var available = !!(sync && sync.status.available !== false);
+    btn.hidden = !available;
+    if (!available) {
+      if (footer) footer.textContent = '进度与笔记保存在这台设备的浏览器里';
+      return;
+    }
+
+    var st = sync.status;
+    var cls = '';
+    if (st.phase === 'error') cls = 'bad';
+    else if (st.phase === 'syncing' || st.phase === 'checking' || st.pending) cls = 'busy';
+    dot.className = 'account-dot' + (cls ? ' ' + cls : '');
+    dot.hidden = !st.user && st.phase !== 'error';
+    btn.title = st.user ? ('已登录：' + st.user.email) : '账号与同步';
+
+    if (footer) {
+      footer.textContent = st.user
+        ? '进度与笔记已与账号同步，换设备登录同一账号即可接着读'
+        : '未登录时进度与笔记只存在本机，登录后自动同步';
+    }
+  }
+
+  function renderAuthBody() {
+    var body = $('#authBody');
+    var heading = $('#authHeading');
+    var sub = $('#authSub');
+    if (!body) return;
+
+    if (!sync) return;
+
+    if (sync.status.available === false) {
+      heading.textContent = '账号';
+      sub.textContent = '当前是纯静态版本，没有后端，所以无法登录。';
+      body.innerHTML = '<p class="auth-hint">账号与云同步需要在 Cloudflare 部署的版本上使用。' +
+        '本机版本的全部阅读功能都正常，进度与笔记保存在这台设备的浏览器里。</p>';
+      return;
+    }
+
+    var st = sync.status;
+
+    if (st.user) {
+      heading.textContent = '账号与同步';
+      sub.textContent = '已登录。阅读进度与笔记会在这台设备和云端之间自动合并。';
+      var initial = (st.user.email || '?').charAt(0).toUpperCase();
+      body.innerHTML =
+        '<div class="auth-user">' +
+          '<div class="auth-avatar">' + escapeHtml(initial) + '</div>' +
+          '<div><div class="au-mail">' + escapeHtml(st.user.email) + '</div>' +
+          '<div class="au-state" id="authState">' + escapeHtml(syncStatusText()) + '</div></div>' +
+        '</div>' +
+        '<div class="auth-actions">' +
+          '<button class="btn" id="authSyncNow">立即同步</button>' +
+          '<button class="btn ghost" id="authLogout">退出登录</button>' +
+        '</div>' +
+        '<p class="auth-hint">退出登录不会删除本机数据，只是停止同步。' +
+        '这个账号与 esatmock.redwallen.cn 通用，在那里登录过的账号可直接使用。</p>';
+
+      $('#authSyncNow').addEventListener('click', function () { sync.syncNow(); });
+      $('#authLogout').addEventListener('click', function () {
+        sync.logout().then(function () { toast('已退出登录，本机数据保留'); });
+      });
+      return;
+    }
+
+    var isSignup = state.authTab === 'signup';
+    heading.textContent = '账号与同步';
+    sub.textContent = '登录后，阅读进度和笔记会自动同步到云端，换设备也能接着读。';
+    body.innerHTML =
+      '<div class="auth-tabs">' +
+        '<button type="button" data-tab="login" class="' + (isSignup ? '' : 'on') + '">登录</button>' +
+        '<button type="button" data-tab="signup" class="' + (isSignup ? 'on' : '') + '">注册</button>' +
+      '</div>' +
+      '<form id="authForm" novalidate>' +
+        '<div class="auth-field"><label for="authEmail">邮箱</label>' +
+          '<input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com"></div>' +
+        '<div class="auth-field"><label for="authPassword">密码</label>' +
+          '<input id="authPassword" type="password" placeholder="至少 8 位" autocomplete="' +
+            (isSignup ? 'new-password' : 'current-password') + '"></div>' +
+        '<div class="auth-error" id="authError"></div>' +
+        '<div class="auth-actions"><button class="btn primary" type="submit" id="authSubmit">' +
+          (isSignup ? '注册并登录' : '登录') + '</button></div>' +
+      '</form>' +
+      '<p class="auth-hint">这个账号与 esatmock.redwallen.cn 共用一套，注册一次两边都能登录。' +
+      '未登录时进度只存在本机，登录后会自动合并上传。</p>';
+
+    $$('.auth-tabs button', body).forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.authTab = b.dataset.tab;
+        renderAuthBody();
+      });
+    });
+
+    $('#authForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var email = $('#authEmail').value.trim();
+      var password = $('#authPassword').value;
+      var errEl = $('#authError');
+      var submit = $('#authSubmit');
+      errEl.textContent = '';
+      if (!email) { errEl.textContent = '请填写邮箱。'; return; }
+      if (password.length < 8) { errEl.textContent = '密码至少 8 位。'; return; }
+      submit.disabled = true;
+      submit.textContent = '处理中…';
+      var action = state.authTab === 'signup' ? sync.signup : sync.login;
+      action(email, password).then(function () {
+        toast(state.authTab === 'signup' ? '注册成功，已开始同步' : '登录成功，已开始同步');
+      }).catch(function (err) {
+        errEl.textContent = (err && err.message) || '操作失败，请稍后重试。';
+        submit.disabled = false;
+        submit.textContent = state.authTab === 'signup' ? '注册并登录' : '登录';
+      });
+    });
+  }
+
+  function onSyncStatus() {
+    updateAccountChrome();
+    var key = sync && sync.status.user ? sync.status.user.id : '';
+    if (key !== authUserKey) {
+      authUserKey = key;
+      // 退出登录后回到「登录」标签，否则再填一次会变成重复注册
+      if (!key) state.authTab = 'login';
+      if (!$('#authModal').hidden) renderAuthBody();
+    } else {
+      var el = $('#authState');
+      if (el) el.textContent = syncStatusText();
+    }
+  }
+
+  function createSync() {
+    if (typeof window.createLiaofanSync !== 'function') return;
+    sync = window.createLiaofanSync({
+      getLocal: function () { return { progress: progress, notes: mynotes }; },
+      onRemote: function () {
+        save(LS.progress, progress);
+        save(LS.notes, mynotes);
+        route();
+      },
+      onStatus: onSyncStatus
+    });
+    sync.start();
+  }
+
+  function openAuth() {
+    $('#authMask').hidden = false;
+    $('#authModal').hidden = false;
+    renderAuthBody();
+  }
+  function closeAuth() {
+    $('#authMask').hidden = true;
+    $('#authModal').hidden = true;
+  }
+
   /* ----------------------------- 抽屉 / 弹层开关 ----------------------------- */
   function openSettings() {
     $('#settingsDrawer').hidden = false;
@@ -746,6 +988,9 @@
     $('#drawerMask').addEventListener('click', closeSettings);
 
     $('#searchBtn').addEventListener('click', openSearch);
+    $('#accountBtn').addEventListener('click', openAuth);
+    $('#closeAuth').addEventListener('click', closeAuth);
+    $('#authMask').addEventListener('click', closeAuth);
     $('#closeSearch').addEventListener('click', closeSearch);
     $('#searchMask').addEventListener('click', closeSearch);
     $('#searchInput').addEventListener('input', function (e) {
@@ -772,13 +1017,18 @@
     });
 
     $('#resetProgress').addEventListener('click', function () {
-      if (!confirm('确定清除全部阅读进度、已掌握标记和笔记吗？此操作不可撤销。')) return;
+      var loggedIn = !!(sync && sync.isLoggedIn());
+      var msg = loggedIn
+        ? '确定清除全部阅读进度、已掌握标记和笔记吗？\n\n你已经登录，云端记录也会一并清除，且无法撤销。'
+        : '确定清除全部阅读进度、已掌握标记和笔记吗？此操作不可撤销。';
+      if (!confirm(msg)) return;
       progress = {};
       mynotes = {};
       save(LS.progress, progress);
       save(LS.notes, mynotes);
       save(LS.last, null);
-      toast('已清除');
+      if (loggedIn) sync.clearRemote();
+      toast(loggedIn ? '已清除本机与云端记录' : '已清除');
       route();
     });
 
@@ -791,6 +1041,9 @@
       var term = t.closest('.term');
       if (term) { e.stopPropagation(); showPopover(term); return; }
 
+      // 账号
+      if (t.closest('#homeAccountBtn')) { openAuth(); return; }
+
       // 模式切换
       var modeBtn = t.closest('[data-mode]');
       if (modeBtn) { state.mode = modeBtn.dataset.mode; route(); return; }
@@ -800,7 +1053,7 @@
       if (dot && state.reader) {
         var pr = secProgress(state.reader.id);
         pr.pos = parseInt(dot.dataset.dot, 10);
-        save(LS.progress, progress);
+        touch(pr); persistProgress();
         route();
         return;
       }
@@ -828,7 +1081,7 @@
           var pr5 = secProgress(state.reader.id);
           if (pair.classList.contains('opened')) pr5.revealed[i] = true;
           else delete pr5.revealed[i];
-          save(LS.progress, progress);
+          touch(pr5); persistProgress();
         }
         return;
       }
@@ -837,7 +1090,7 @@
       if ((t.closest('#markDone') || t.closest('#markDone2')) && state.reader) {
         var pr6 = secProgress(state.reader.id);
         pr6.done = !pr6.done;
-        save(LS.progress, progress);
+        touch(pr6); persistProgress();
         toast(pr6.done ? '已标记为掌握' : '已取消标记');
         route();
         return;
@@ -866,7 +1119,7 @@
           p.classList.toggle('opened', !allOpen);
           if (allOpen) delete prT.revealed[i]; else prT.revealed[i] = true;
         });
-        save(LS.progress, progress);
+        touch(prT); persistProgress();
         t.closest('#toggleAll').textContent = allOpen ? '全部展开' : '全部收起';
         return;
       }
@@ -898,7 +1151,7 @@
     // 键盘
     document.addEventListener('keydown', function (e) {
       var typing = /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '');
-      if (e.key === 'Escape') { closeSearch(); closeSettings(); hidePopover(); return; }
+      if (e.key === 'Escape') { closeSearch(); closeSettings(); closeAuth(); hidePopover(); return; }
       if (typing) return;
       if (e.key === '/' && !e.metaKey && !e.ctrlKey) {
         e.preventDefault(); openSearch(); return;
@@ -951,6 +1204,7 @@
 
   function boot() {
     applySettings();
+    createSync();
     bindOnce();
     route();
     registerSW();

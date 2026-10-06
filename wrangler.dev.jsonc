@@ -1,0 +1,33 @@
+{
+  // 本地开发用配置：与 wrangler.jsonc 相同，但去掉自定义域名路由。
+  // 原因：wrangler dev 会把请求的 host 当成路由里配置的 books.redwallen.cn，
+  // 于是 Worker 会给 Cookie 加上 Domain=.redwallen.cn，而浏览器在 localhost 上会拒绝这种 Cookie。
+  // 用这份配置跑 `npm run dev`，host 就是 localhost，登录态可以正常保存。
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "liaofan-sizun-dev",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-08-14",
+
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "ratelimits": [
+    {
+      "name": "AUTH_RATE_LIMITER",
+      "namespace_id": "2418101",
+      "simple": { "limit": 10, "period": 60 }
+    }
+  ],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "esat-account-data",
+      "database_id": "2008a19f-2910-4cea-95fe-c975bbce90a7"
+    }
+  ]
+}

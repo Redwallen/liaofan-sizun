@@ -3,3 +3,5 @@
 *.swp
 backup/
 node_modules/
+.wrangler/
+dist/

@@ -3,13 +3,14 @@
    让网站可以「添加到主屏幕」并离线阅读。
    改动静态资源后，请把 VERSION 加一，旧缓存会在下次访问时清理。
    ============================================================ */
-var VERSION = 'liaofan-v1';
+var VERSION = 'liaofan-v2';
 
 var ASSETS = [
   './',
   './index.html',
   './manifest.webmanifest',
   './css/style.css',
+  './js/sync.js',
   './js/app.js',
   './data/book.js',
   './icons/icon-192.png',
@@ -18,6 +19,13 @@ var ASSETS = [
   './icons/apple-touch-icon.png',
   './icons/favicon-32.png'
 ];
+
+var SCOPE_PATH = new URL(self.registration.scope).pathname;
+
+/** 账号 / 同步接口一律不走缓存，否则会拿到过期的登录状态 */
+function isApiRequest(pathname) {
+  return pathname.indexOf(SCOPE_PATH + 'api/') === 0;
+}
 
 self.addEventListener('install', function (e) {
   e.waitUntil(
@@ -46,6 +54,7 @@ self.addEventListener('fetch', function (e) {
   var url;
   try { url = new URL(req.url); } catch (err) { return; }
   if (url.origin !== self.location.origin) return;
+  if (isApiRequest(url.pathname)) return; // 交给网络，不缓存
 
   // 导航请求：优先用缓存的 index.html，保证离线也能打开
   if (req.mode === 'navigate') {

@@ -1,0 +1,18 @@
+{
+  "name": "liaofan-sizun",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "《了凡四训》逐句精读 —— Cloudflare Workers + D1，与 esatmock.redwallen.cn 共用账号",
+  "scripts": {
+    "build": "python3 tools/build_site.py",
+    "db:init": "wrangler d1 execute DB --remote --file=./schema/liaofan.sql",
+    "db:init:local": "wrangler d1 execute DB --local --file=./schema/liaofan.sql",
+    "dev": "wrangler dev",
+    "deploy": "python3 tools/build_site.py && wrangler deploy",
+    "deploy:ci": "wrangler d1 execute DB --remote --file=./schema/liaofan.sql && python3 tools/build_site.py && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.122.0"
+  }
+}

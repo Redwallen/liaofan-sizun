@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "liaofan-sizun",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-08-14",
+
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "routes": [
+    { "pattern": "books.redwallen.cn", "custom_domain": true }
+  ],
+
+  "ratelimits": [
+    {
+      "name": "AUTH_RATE_LIMITER",
+      "namespace_id": "2418101",
+      "simple": { "limit": 10, "period": 60 }
+    }
+  ],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "esat-account-data",
+      "database_id": "2008a19f-2910-4cea-95fe-c975bbce90a7"
+    }
+  ]
+}
