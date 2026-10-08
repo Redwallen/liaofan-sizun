@@ -115,7 +115,9 @@
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $$(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
 
+  var FLAT_CACHE = null;
   function flatSections() {
+    if (FLAT_CACHE) return FLAT_CACHE;
     if (!BOOK) return [];
     var arr = [];
     BOOK.chapters.forEach(function (ch, ci) {
@@ -123,7 +125,54 @@
         arr.push({ ci: ci, si: si, ch: ch, sec: sec });
       });
     });
+    FLAT_CACHE = arr;
     return arr;
+  }
+
+  /** 全书顺序上相邻的一节（delta = -1 上一节，1 下一节） */
+  function neighborSection(ci, si, delta) {
+    var flat = flatSections();
+    for (var i = 0; i < flat.length; i++) {
+      if (flat[i].ci === ci && flat[i].si === si) return flat[i + delta] || null;
+    }
+    return null;
+  }
+
+  /** 这一节是否有过实际的阅读动作（只是打开过、什么都没做不算） */
+  function hasReadMark(p) {
+    if (!p) return false;
+    if (p.done) return true;
+    if (Number.isFinite(p.pos) && p.pos > 0) return true;
+    if (p.revealed && Object.keys(p.revealed).length) return true;
+    return Number.isFinite(p.at) && p.at > 0;
+  }
+
+  /** 读到过的、全书顺序最靠后的一节 */
+  function furthestRead() {
+    var flat = flatSections();
+    for (var i = flat.length - 1; i >= 0; i--) {
+      if (hasReadMark(progress[flat[i].sec.id])) return flat[i];
+    }
+    return null;
+  }
+
+  /** 全书第一处还没标记掌握的小节 */
+  function firstUnreadSection() {
+    var flat = flatSections();
+    for (var i = 0; i < flat.length; i++) {
+      if (!(progress[flat[i].sec.id] && progress[flat[i].sec.id].done)) return flat[i];
+    }
+    return flat[0] || null;
+  }
+
+  /** 首页的「继续阅读」按钮：主标题 + 目的地（篇 · 节） */
+  function resumeButton(entry, primary, label) {
+    var ch = BOOK.chapters[entry.ci];
+    var sec = ch.sections[entry.si];
+    return '<a class="btn' + (primary ? ' primary' : '') + ' resume" href="#/read/' + entry.ci + '/' + entry.si + '"' +
+      ' title="' + escapeAttr(ch.title + ' · ' + sec.title) + '">' +
+      '<span class="rb-label">' + escapeHtml(label) + '</span>' +
+      '<span class="rb-sub">' + escapeHtml(ch.title) + ' · 第 ' + (entry.si + 1) + ' 节</span></a>';
   }
 
   function secProgress(id) {
@@ -158,14 +207,39 @@
     f.pr.pos = Math.min(f.sec.pairs.length, f.pos + 1);
     touch(f.pr); persistProgress(); route();
   }
+  /** 跳到另一节；pos 省略时沿用那一节自己保存的位置 */
+  function goToSection(entry, pos) {
+    var sec = entry && BOOK.chapters[entry.ci] && BOOK.chapters[entry.ci].sections[entry.si];
+    if (!sec) return false;
+    if (typeof pos === 'number') {
+      var pr = secProgress(sec.id);
+      pr.pos = Math.max(0, Math.min(pos, sec.pairs.length));
+      touch(pr); persistProgress();
+    }
+    navigate('#/read/' + entry.ci + '/' + entry.si);
+    return true;
+  }
+  /* 第一节按「上一句」＝ 回到上一节的最后一句 */
   function focusPrev() {
     var f = focusState(); if (!f) return;
+    if (f.pos <= 0) {
+      var prev = neighborSection(state.reader.ci, state.reader.si, -1);
+      if (!prev) return;
+      goToSection(prev, Math.max(0, prev.sec.pairs.length - 1));
+      return;
+    }
     f.pr.pos = Math.max(0, f.pos - 1);
     touch(f.pr); persistProgress(); route();
   }
-  /* 先展开白话，已展开则进下一句 */
+  /* 先展开白话，已展开则进下一句；读完后进入下一节 */
   function focusAdvance() {
     var f = focusState(); if (!f) return;
+    if (f.pos >= f.sec.pairs.length) {
+      var next = neighborSection(state.reader.ci, state.reader.si, 1);
+      if (!next) { toast('这已经是最后一节了'); return; }
+      goToSection(next);
+      return;
+    }
     if (!f.pr.revealed[f.pos] && settings.defaultReveal !== 'shown') focusReveal();
     else focusNext();
   }
@@ -339,11 +413,22 @@
   function renderHome(view) {
     var ov = overallStats();
     var last = load(LS.last, null);
-    var resumeHref = '#/';
-    var resumeText = '开始阅读';
+    var lastEntry = null;
     if (last && typeof last.ci === 'number' && BOOK.chapters[last.ci] && BOOK.chapters[last.ci].sections[last.si]) {
-      resumeHref = '#/read/' + last.ci + '/' + last.si;
-      resumeText = '继续上次：' + BOOK.chapters[last.ci].title + ' · ' + BOOK.chapters[last.ci].sections[last.si].title;
+      lastEntry = { ci: last.ci, si: last.si };
+    }
+    var farEntry = furthestRead();
+
+    // 两个入口：上次读到的地方；读过的、全书顺序最靠后的一节
+    var resumeHtml = '';
+    if (lastEntry) {
+      resumeHtml += resumeButton(lastEntry, true, '继续上次');
+      if (farEntry) resumeHtml += resumeButton(farEntry, false, '读得最远');
+    } else if (farEntry) {
+      resumeHtml += resumeButton(farEntry, true, '继续阅读');
+    } else {
+      var fu = firstUnreadSection();
+      if (fu) resumeHtml += resumeButton(fu, true, '开始阅读');
     }
 
     var html = '';
@@ -358,7 +443,7 @@
     html += '<div class="ring" style="--p:' + ov.pct + '"><b>' + ov.pct + '%</b></div>';
     html += '<div class="overall-text"><strong>总进度 ' + ov.done + ' / ' + ov.total + ' 节</strong>' +
             '<span>每读完一节，可点「标记已掌握」，进度就记在这里。</span></div>';
-    html += '<a class="btn primary" href="' + resumeHref + '">' + escapeHtml(resumeText) + '</a>';
+    html += '<div class="overall-actions">' + resumeHtml + '</div>';
     html += '</div>';
 
     if (sync && sync.status.available) {
@@ -524,19 +609,6 @@
             '<textarea id="myNote" placeholder="写点自己的想法、疑问或要记住的话…（自动保存在本机）"></textarea>' +
             '</section>';
 
-    // 底部导航
-    var flat = flatSections();
-    var idx = flat.findIndex(function (f) { return f.ci === ci && f.si === si; });
-    var prevS = flat[idx - 1], nextS = flat[idx + 1];
-    html += '<div class="reader-foot">';
-    if (prevS) html += '<a class="btn ghost small" href="#/read/' + prevS.ci + '/' + prevS.si + '">← 上一节</a>';
-    html += '<span class="spacer"></span>';
-    html += '<button class="btn small' + (pr.done ? '' : ' primary') + '" id="markDone">' +
-            (pr.done ? '✓ 已掌握（点击取消）' : '标记本节已掌握') + '</button>';
-    html += '<span class="spacer"></span>';
-    if (nextS) html += '<a class="btn ghost small" href="#/read/' + nextS.ci + '/' + nextS.si + '">下一节 →</a>';
-    html += '</div>';
-
     html += '</div>';
     view.innerHTML = html;
 
@@ -579,6 +651,7 @@
               '<button class="btn primary" id="markDone2">' + (pr.done ? '已掌握' : '标记本节已掌握') + '</button>' +
               '</div>';
       html += '</div>';
+      html += renderFocusBar(sec, pr, pos, false, true);
       return html;
     }
 
@@ -590,19 +663,33 @@
             '<span class="tlabel">白话</span>' + escapeHtml(pair.trans) + '</div>';
     html += '</div>';
 
-    html += '<div class="hint-row">';
-    html += '<button class="btn small" id="prevPair"' + (pos === 0 ? ' disabled' : '') + '>上一句</button>';
-    if (!shown) {
-      html += '<button class="btn small primary" id="revealBtn">看白话</button>';
-    } else if (pos < sec.pairs.length - 1) {
-      html += '<button class="btn small primary" id="nextPair">下一句 →</button>';
-    } else {
-      html += '<button class="btn small primary" id="nextPair">读完了</button>';
+    html += '</div>';
+    html += renderFocusBar(sec, pr, pos, shown, false);
+    return html;
+  }
+
+  /* 逐句精读的操作条：渲染在白色卡片之外，靠 CSS 固定在视口底部，始终可见 */
+  function renderFocusBar(sec, pr, pos, shown, finished) {
+    var prevS = neighborSection(state.reader.ci, state.reader.si, -1);
+    var nextS = neighborSection(state.reader.ci, state.reader.si, 1);
+    var canPrev = pos > 0 || !!prevS;
+
+    var html = '<div class="focus-actions"><div class="fa-inner">';
+    html += '<button class="btn small" id="prevPair"' + (canPrev ? '' : ' disabled') + '>上一句</button>';
+    if (!finished) {
+      if (!shown) {
+        html += '<button class="btn small primary" id="revealBtn">看白话</button>';
+      } else if (pos < sec.pairs.length - 1) {
+        html += '<button class="btn small primary" id="nextPair">下一句 →</button>';
+      } else {
+        html += '<button class="btn small primary" id="nextPair">读完了</button>';
+      }
     }
-    html += '<button class="btn small ghost" id="speakPair">朗读</button>';
-    html += '<span class="tip">点原文也能显示白话 · 空格 → 下一句</span>';
-    html += '</div>';
-    html += '</div>';
+    var tip = finished
+      ? (nextS ? '空格 → 下一节' : '这已经是最后一节')
+      : '点原文也能显示白话 · 空格 → 下一句';
+    html += '<span class="tip">' + tip + '</span>';
+    html += '</div></div>';
     return html;
   }
 
@@ -617,6 +704,10 @@
       html += '</div>';
     });
     html += '</div>';
+
+    // 通篇模式没有逐句操作条，标记入口放在整节末尾
+    html += '<div class="flow-foot"><button class="btn' + (pr.done ? '' : ' primary') + '" id="markDone">' +
+            (pr.done ? '✓ 已掌握（点击取消）' : '标记本节已掌握') + '</button></div>';
     return html;
   }
 
@@ -1107,13 +1198,7 @@
         return;
       }
 
-      // 朗读
-      if (t.closest('#speakPair') && state.reader) {
-        var sec = BOOK.chapters[state.reader.ci].sections[state.reader.si];
-        var p = secProgress(sec.id);
-        speak(sec.pairs[p.pos || 0].orig);
-        return;
-      }
+      // 朗读（整节）
       if (t.closest('#speakSection') && state.reader) {
         var sec2 = BOOK.chapters[state.reader.ci].sections[state.reader.si];
         speak(sec2.pairs.map(function (x) { return x.orig; }).join(''));

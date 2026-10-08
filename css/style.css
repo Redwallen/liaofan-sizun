@@ -184,7 +184,17 @@ h1, h2, h3, h4 { font-family: var(--kai); font-weight: 600; line-height: 1.35; }
 .overall .overall-text { flex: 1; min-width: 0; }
 .overall .overall-text strong { display: block; font-size: 15px; }
 .overall .overall-text span { font-size: 13px; color: var(--muted); }
+
+/* 首页的两个续读入口 */
 .overall .btn { flex: none; }
+.overall-actions { flex: none; display: flex; flex-direction: column; gap: 8px; }
+.btn.resume {
+  flex-direction: column; align-items: flex-start; gap: 0;
+  padding: 7px 16px; line-height: 1.4; text-align: left;
+}
+.btn.resume .rb-label { font-size: 13.5px; font-weight: 600; }
+.btn.resume .rb-sub { font-size: 11.5px; font-weight: 500; opacity: .82; }
+.btn.resume:not(.primary) .rb-sub { color: var(--muted); opacity: 1; }
 
 .chapter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 
@@ -331,8 +341,24 @@ h1, h2, h3, h4 { font-family: var(--kai); font-weight: 600; line-height: 1.35; }
 .focus-stage .orig-line { font-family: var(--serif); }
 .focus-body { flex: 1; display: flex; flex-direction: column; justify-content: center; }
 
-.hint-row { display: flex; align-items: center; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
-.hint-row .tip { font-size: 12.5px; color: var(--faint); margin-left: auto; }
+/* 逐句精读操作条：在白色卡片之外，固定在视口底部，始终可见 */
+.focus-actions {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 46;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -6px 24px -14px rgba(60, 45, 20, .4);
+}
+.focus-actions .fa-inner {
+  max-width: 780px; margin: 0 auto;
+  padding: 9px 22px calc(9px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.focus-actions .tip { font-size: 12.5px; color: var(--faint); margin-left: auto; }
+html[data-theme="night"] .focus-actions { box-shadow: 0 -6px 24px -12px rgba(0, 0, 0, .75); }
+/* 操作条固定在底部时，页面底部与页脚都要给它让位 */
+body.focus-mode .view { padding-bottom: 124px; }
+body.focus-mode .footer { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+body.focus-mode .toast { bottom: 84px; }
 
 .trans-box {
   margin-top: 20px; padding: 16px 18px;
@@ -366,6 +392,8 @@ h1, h2, h3, h4 { font-family: var(--kai); font-weight: 600; line-height: 1.35; }
 .pair.opened .trans-box { display: block; }
 .pair-click-hint { font-size: 12px; color: var(--faint); margin-top: 8px; }
 .pair.opened .pair-click-hint { display: none; }
+/* 通篇对照没有逐句操作条，标记入口放在整节末尾 */
+.flow-foot { margin-top: 18px; text-align: center; }
 
 .term {
   color: var(--accent);
@@ -655,7 +683,8 @@ h1, h2, h3, h4 { font-family: var(--kai); font-weight: 600; line-height: 1.35; }
   .search-modal { top: 0; width: 100vw; max-height: 100vh; height: 100%; border-radius: 0; }
   .chapter-grid { grid-template-columns: 1fr; }
   .reader-top { font-size: 12px; }
-  .hint-row .tip { display: none; }
+  .focus-actions .tip { display: none; }
+  .focus-actions .fa-inner { padding: 9px 15px calc(9px + env(safe-area-inset-bottom)); }
   .footer { padding-bottom: calc(22px + env(safe-area-inset-bottom)); }
 
   /* ---- 底部标签栏（拇指可达） ---- */
@@ -676,20 +705,11 @@ h1, h2, h3, h4 { font-family: var(--kai); font-weight: 600; line-height: 1.35; }
   .tabbar a.active, .tabbar button.active { color: var(--accent); }
   html[data-theme="night"] .tabbar { box-shadow: 0 -6px 24px -12px rgba(0, 0, 0, .7); }
 
-  /* ---- 逐句精读：标签栏让位给固定在底部的操作条 ---- */
+  /* ---- 逐句精读：底部标签栏让位给常驻的逐句操作条 ---- */
   body.focus-mode .tabbar { display: none; }
-  body.focus-mode .view { padding-bottom: 104px; }
-  body.focus-mode .focus-stage { padding-bottom: 18px; }
-  body.focus-mode .focus-stage .hint-row {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 47;
-    margin: 0; gap: 8px; flex-wrap: nowrap;
-    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
-    background: var(--surface);
-    border-top: 1px solid var(--border);
-    box-shadow: 0 -6px 24px -14px rgba(60, 45, 20, .45);
-  }
-  html[data-theme="night"] body.focus-mode .focus-stage .hint-row { box-shadow: 0 -6px 24px -12px rgba(0, 0, 0, .75); }
-  body.focus-mode .focus-stage .hint-row .btn { flex: 1; min-height: 46px; padding: 8px 6px; }
+  body.focus-mode .view { padding-bottom: 108px; }
+  body.focus-mode .focus-actions .fa-inner { flex-wrap: nowrap; gap: 8px; }
+  body.focus-mode .focus-actions .btn { flex: 1; min-height: 46px; padding: 8px 6px; }
 
   /* ---- 触控友好的点击目标 ---- */
   .btn { min-height: 42px; }
@@ -703,6 +723,7 @@ h1, h2, h3, h4 { font-family: var(--kai); font-weight: 600; line-height: 1.35; }
 @media (max-width: 560px) {
   .overall { flex-wrap: wrap; gap: 12px; }
   .overall .overall-text { flex: 1 1 60%; }
+  .overall-actions { flex: 1 1 100%; }
   .overall .btn { width: 100%; }
   .reader-foot { flex-wrap: wrap; justify-content: space-between; gap: 8px; }
   .reader-foot .spacer { display: none; }
@@ -725,7 +746,7 @@ h1, h2, h3, h4 { font-family: var(--kai); font-weight: 600; line-height: 1.35; }
 }
 
 @media print {
-  .topbar, .footer, .reader-top, .reader-foot, .hint-row, .dots, .panel-head button { display: none; }
+  .topbar, .footer, .reader-top, .reader-foot, .focus-actions, .flow-foot, .dots, .panel-head button { display: none; }
   .pair .trans-box { display: block !important; }
   body { background: #fff; }
 }
