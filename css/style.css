@@ -359,6 +359,9 @@ html[data-theme="night"] .focus-actions { box-shadow: 0 -6px 24px -12px rgba(0, 
 body.focus-mode .view { padding-bottom: 124px; }
 body.focus-mode .footer { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 body.focus-mode .toast { bottom: 84px; }
+/* 读完一节后「下一节」是链接样式的按钮，给它定住行高才能和旁边的真按钮同高 */
+.focus-actions a.btn { text-align: center; line-height: 1.35; }
+.focus-actions .btn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .trans-box {
   margin-top: 20px; padding: 16px 18px;
@@ -685,7 +688,8 @@ body.focus-mode .toast { bottom: 84px; }
   .reader-top { font-size: 12px; }
   .focus-actions .tip { display: none; }
   .focus-actions .fa-inner { padding: 9px 15px calc(9px + env(safe-area-inset-bottom)); }
-  .footer { padding-bottom: calc(22px + env(safe-area-inset-bottom)); }
+  /* 页脚最后一行不能被底部标签栏盖住 */
+  .footer { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 
   /* ---- 底部标签栏（拇指可达） ---- */
   .tabbar {
@@ -707,9 +711,14 @@ body.focus-mode .toast { bottom: 84px; }
 
   /* ---- 逐句精读：底部标签栏让位给常驻的逐句操作条 ---- */
   body.focus-mode .tabbar { display: none; }
-  body.focus-mode .view { padding-bottom: 108px; }
+  /* 操作条高 64px + 安全区，让位交给页脚，卡片下面不留一大块空白 */
+  body.focus-mode .view { padding-bottom: 20px; }
+  body.focus-mode .footer { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+  body.focus-mode .toast { bottom: calc(76px + env(safe-area-inset-bottom)); }
   body.focus-mode .focus-actions .fa-inner { flex-wrap: nowrap; gap: 8px; }
-  body.focus-mode .focus-actions .btn { flex: 1; min-height: 46px; padding: 8px 6px; }
+  body.focus-mode .focus-actions .btn { flex: 1; min-width: 0; min-height: 46px; padding: 8px 6px; }
+  /* 通篇对照没有操作条，标记入口拉满一行，拇指能够到 */
+  .flow-foot .btn { width: 100%; }
 
   /* ---- 触控友好的点击目标 ---- */
   .btn { min-height: 42px; }

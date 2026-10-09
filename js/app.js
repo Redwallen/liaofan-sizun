@@ -29,7 +29,8 @@
     settings: 'liaofan.settings.v1',
     progress: 'liaofan.progress.v1',
     notes: 'liaofan.notes.v1',
-    last: 'liaofan.last.v1'
+    last: 'liaofan.last.v1',
+    swipeHint: 'liaofan.swipeHint.v1'
   };
 
   var DEFAULT_SETTINGS = {
@@ -403,10 +404,24 @@
       a.classList.toggle('active', a.dataset.nav === key);
     });
     // 手机端：阅读时把底部标签栏换成逐句操作条
+    var focusMode = parts[0] === 'read' && state.mode === 'focus';
     document.body.classList.toggle('in-reader', parts[0] === 'read');
-    document.body.classList.toggle('focus-mode', parts[0] === 'read' && state.mode === 'focus');
+    document.body.classList.toggle('focus-mode', focusMode);
+    if (focusMode) hintSwipeOnce();
 
     window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+
+  /* 触屏上没有「空格 → 下一句」这类提示，第一次进逐句精读时口头交代一次滑动手势 */
+  function isTouchReading() {
+    if (window.innerWidth > 720) return false;
+    if ((navigator.maxTouchPoints || 0) > 0 || 'ontouchstart' in window) return true;
+    return !!(window.matchMedia && window.matchMedia('(hover: none)').matches);
+  }
+  function hintSwipeOnce() {
+    if (!isTouchReading() || load(LS.swipeHint, false)) return;
+    save(LS.swipeHint, true);
+    setTimeout(function () { toast('左滑看下一句，右滑回上一句'); }, 700);
   }
 
   /* ----------------------------- 首页 ----------------------------- */
@@ -668,7 +683,9 @@
     return html;
   }
 
-  /* 逐句精读的操作条：渲染在白色卡片之外，靠 CSS 固定在视口底部，始终可见 */
+  /* 逐句精读的操作条：渲染在白色卡片之外，靠 CSS 固定在视口底部，始终可见。
+     手机上没有键盘、也看不到「空格 →」的提示，所以读完整一节时这里必须给出
+     一个能点的「下一节」，不能只靠滑动。 */
   function renderFocusBar(sec, pr, pos, shown, finished) {
     var prevS = neighborSection(state.reader.ci, state.reader.si, -1);
     var nextS = neighborSection(state.reader.ci, state.reader.si, 1);
@@ -676,17 +693,21 @@
 
     var html = '<div class="focus-actions"><div class="fa-inner">';
     html += '<button class="btn small" id="prevPair"' + (canPrev ? '' : ' disabled') + '>上一句</button>';
-    if (!finished) {
-      if (!shown) {
-        html += '<button class="btn small primary" id="revealBtn">看白话</button>';
-      } else if (pos < sec.pairs.length - 1) {
-        html += '<button class="btn small primary" id="nextPair">下一句 →</button>';
+    if (finished) {
+      if (nextS) {
+        html += '<a class="btn small primary" href="#/read/' + nextS.ci + '/' + nextS.si + '">下一节 →</a>';
       } else {
-        html += '<button class="btn small primary" id="nextPair">读完了</button>';
+        html += '<a class="btn small primary" href="#/">回到目录</a>';
       }
+    } else if (!shown) {
+      html += '<button class="btn small primary" id="revealBtn">看白话</button>';
+    } else if (pos < sec.pairs.length - 1) {
+      html += '<button class="btn small primary" id="nextPair">下一句 →</button>';
+    } else {
+      html += '<button class="btn small primary" id="nextPair">读完了</button>';
     }
     var tip = finished
-      ? (nextS ? '空格 → 下一节' : '这已经是最后一节')
+      ? (nextS ? '空格 → 下一节' : '这已经是全书最后一节')
       : '点原文也能显示白话 · 空格 → 下一句';
     html += '<span class="tip">' + tip + '</span>';
     html += '</div></div>';
