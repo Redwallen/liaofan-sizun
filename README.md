@@ -75,12 +75,14 @@
 
 ```
 浏览器（books.redwallen.cn）
-  ├── 静态资源：index.html / css / js / data / icons   →  Workers Static Assets
-  └── /api/*    →  Worker
-                    ├── /api/auth/*    复用 ESAT 的 users / sessions 表
-                    └── /api/reading   本项目的 lf_progress / lf_notes 表
-                              ↓
-                 D1 数据库 esat-account-data（与 ESAT 共用一个库）
+  └── 所有请求  →  Worker（run_worker_first: true）
+                    ├── 地区门禁：非中国大陆 → 302 跳 /unavailable
+                    ├── 静态资源：index.html / css / js / data / icons  →  ASSETS 绑定
+                    └── /api/*
+                          ├── /api/auth/*    复用 ESAT 的 users / sessions 表
+                          └── /api/reading   本项目的 lf_progress / lf_notes 表
+                                    ↓
+                       D1 数据库 esat-account-data（与 ESAT 共用一个库）
 ```
 
 **单点登录怎么实现的**：两个站点绑定同一个 D1 数据库，会话 Cookie 同名
@@ -91,6 +93,31 @@
 
 **密码哈希**：PBKDF2-SHA-256、10 万次迭代、每人 16 字节随机盐、输出 32 字节。
 两边的实现必须完全一致，否则无法互相登录。
+
+---
+
+## 地区门禁（只对中国大陆开放）
+
+本站只对中国大陆访客开放。其他地区访问时，Worker 会 302 跳到 `/unavailable`，
+在那里看到「This website is not available in your region」（HTTP 451）。
+
+- 判断依据是 `request.cf.country`，只有 `CN` 放行；港澳台是独立的 ISO 代码
+  （`HK` / `MO` / `TW`），按「仅大陆」的要求同样被拦。
+- `/api/*` 不做跳转，直接返回 451 JSON，免得前端 fetch 拿到 HTML 报更难的错。
+- 门禁相关的响应一律 `Cache-Control: no-store`：它随访客地区变化，不能被缓存复用。
+- 拿不到国家信息时按不放行处理（fail closed）。
+
+**维护要点**：
+
+- 逻辑在 `worker/region-gate.js`，**四个项目各存一份，内容必须一致**
+  （book / ESAT / lobby / photo-site，ESAT 是等价的 `.ts` 版本）。改一处请四处同步。
+- 依赖 `wrangler.jsonc` 里的 `"run_worker_first": true`。如果改回 `["/api/*"]`，
+  静态资源就不再经过 Worker，页面照常渲染，门禁会彻底失效。
+- 本地开发靠 `.dev.vars` 里的 `REGION_GATE=off` 关闭门禁（`wrangler deploy` 会忽略该文件，
+  线上不受影响）。想在本地验证拦截效果：`wrangler dev --var REGION_GATE:on`。
+
+> 这套判断基于 Cloudflare 边缘节点的 IP 地理位置，属于业务与合规层面的信号，
+> 不是安全边界：在中国用境外出口的访客会被误拦，在境外走中国出口的访客能进来。
 
 ---
 

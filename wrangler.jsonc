@@ -8,7 +8,9 @@
     "binding": "ASSETS",
     "directory": "./dist",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    // true：所有请求（含 HTML/JS/CSS/图片）先过 Worker，地区门禁才拦得住。
+    // 写成 ["/api/*"] 时静态资源由资源服务直接返回，Worker 看不到，门禁无效。
+    "run_worker_first": true
   },
 
   "routes": [

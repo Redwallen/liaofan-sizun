@@ -12,7 +12,9 @@
     "binding": "ASSETS",
     "directory": "./dist",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    // 与线上 wrangler.jsonc 保持一致，让本地也能复现门禁行为。
+    // 本地 host 是 localhost，region-gate.js 会自动放行，不影响开发。
+    "run_worker_first": true
   },
 
   "ratelimits": [

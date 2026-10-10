@@ -15,6 +15,8 @@
    PBKDF2-SHA256 / 100000 次迭代 / 每人 16 字节随机盐 / 输出 32 字节
    ============================================================ */
 
+import { gateState, blockPage, blockedResponse, isBlockPagePath } from './region-gate.js';
+
 const COOKIE = 'esat_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PBKDF2_ITERATIONS = 100000;
@@ -440,6 +442,13 @@ async function api(env, request) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    // 地区门禁：只放行中国大陆，其他地区跳到 /unavailable。
+    // 必须在 ASSETS 之前判断，所以 wrangler.jsonc 用 run_worker_first: true。
+    const state = gateState(request, env);
+    if (isBlockPagePath(url.pathname)) return blockPage(state);
+    if (state.blocked) return blockedResponse(request, state);
+
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
     try {
       return await api(env, request);
